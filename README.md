@@ -18,7 +18,7 @@ This repository contains multiple implementations of Flash Attention optimized w
 ## Installation
 1. Clone repository:
 ```bash
-git clone https://github.com/yourusername/triton-flash-attention.git
+git clone https://github.com/lyj20071013/triton-flash-attention.git
 cd triton-flash-attention
 ```
 
