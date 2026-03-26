@@ -4,6 +4,22 @@ This repository is an educational yet hardcore exploration of **FlashAttention**
 
 > **Note:** This is a research/educational repository intended to dissect the underlying system mechanics (SRAM allocation, Epilogue Normalization, FP8 Tensor Cores) rather than a production drop-in replacement. 
 
+## 📂 Repository Structure
+
+The project is modularized into the two fundamental phases of LLM generation:
+
+```text
+Triton-FlashAttention/
+├── prefill/                # Kernels for processing long prompts (Compute-Bound)
+│   ├── flash_attention_v1.py   # Naive implementation
+│   ├── flash_attention_v2.py   # Epilogue Normalization
+│   └── flash_attention_v3.py   # TMA & FP8 (Ampere/Hopper)
+├── decoding/               # Kernels for autoregressive generation (Memory-Bound)
+│   └── flash_decoding_v1.py    # Split-K parallelization & 2-stage reduction
+├── run_prefill_bench.py    # Benchmark suite for Prefill TFLOPs
+└── run_decoding_bench.py   # Benchmark suite for Decoding Bandwidth
+```
+
 ## 🚀 Architectural Evolution
 
 This repo contains three distinct implementations, each solving critical system-level bottlenecks:
@@ -17,6 +33,22 @@ This repo contains three distinct implementations, each solving critical system-
 - **v3: FP8 Tensor Cores & Block Prefetching**
   - **Optimization:** Replaces naive on-the-fly dynamic quantization (which stalls the GPU pipeline via block reductions) with static scaling logic. 
   - **Hardware Mechanics:** Utilizes Triton's `tl.advance` block pointers for zero-overhead prefetching and casts data to `float8_e5m2` for maximum Tensor Core utilization.
+- **Decoding: Flash-Decoding (Split-K Attention)**
+  - **Bottleneck:** Autoregressive generation (Q=1) is heavily Memory-Bound. Standard attention leaves the majority of SMs starved.
+  - **Optimization:** Partitions the massive KV cache across the sequence dimension (Split-K), forcing parallel memory loads across all SMs, followed by a mathematically rigorous 2-stage Global LogSumExp reduction.
+
+
+## 🎯 Addressing the Long-Context Decoding Bottleneck
+In autoregressive decoding, traditional attention becomes severely Memory-Bound as the sequence length grows. On a legacy Pascal GPU (GTX 1080 Ti, Theoretical Bandwidth ~484 GB/s) with a massive 64K Context Window, PyTorch native GEMV throughput degrades significantly.
+
+Our Split-K Triton kernel sustains ~360 GB/s bandwidth (74% of theoretical hardware limit), delivering a massive throughput rescue for extreme long-context generation by distributing the workload across all 28 SMs.
+
+| Context Length        | Implementation  | Time (ms)| Bandwidth (GB/s)  | Note |
+|-----------------------|------------|--------------|-----------|------|
+| 8K (Medium)        | PyTorch Native      | 0.331       | 202.47         | CuBLAS GEMV baseline |
+| 8K (Medium)     | **Flash Decoding (Split-K)**    | **0.195**        | **344.72**      | SM occupancy maximized |
+| 64K (Extreme)     | PyTorch Native     | 3.867        | 138.84      | Single-SM starvation |
+| 64K (Extreme) | **Flash Decoding (Split-K)** | **1.494** | **359.46** | 2.5x Speedup, sustained bandwidth |
 
 ## ⚡ Benchmark Results
 
@@ -76,10 +108,12 @@ git clone https://github.com/lyj20071013/Triton-FlashAttention
 cd Triton-FlashAttention
 pip install torch triton matplotlib
 ```
+
+Prefill Attention Call
 Python
 ```
 import torch
-from Attention import call_flash_attention_v3
+from prefill.flash_attention_v3 import call_flash_attention_v3
 
 
 # [seq_len, num_heads, head_dim]
@@ -89,6 +123,21 @@ v = torch.randn_like(q)
 
 # Execute FP32/FP16 accumulated, FP8 tensor core operations
 out = call_flash_attention_v3(q, k, v, use_fp8=True, is_causal=True)
+```
+
+Flash Decoding Call
+python
+```
+import torch
+from decoding.flash_decoding_v1 import call_flash_decoding
+
+# q: [Batch, Heads, 1, HeadDim]
+q = torch.randn(1, 16, 1, 64, device='cuda', dtype=torch.float32)
+# k, v: [Batch, Heads, SeqLen, HeadDim]
+k = torch.randn(1, 16, 65536, 64, device='cuda', dtype=torch.float32)
+v = torch.randn_like(k)
+
+out = call_flash_decoding(q, k, v)
 ```
 
 # 📊 Visualizations
