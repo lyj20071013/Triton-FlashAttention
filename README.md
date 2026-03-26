@@ -93,5 +93,5 @@ out = call_flash_attention_v3(q, k, v, use_fp8=True, is_causal=True)
 
 # 📊 Visualizations
 
-![1](acc1.png)
-![2](acc2.png)
+![1](asset/acc_1.png)
+![2](asset/acc_2.png)
