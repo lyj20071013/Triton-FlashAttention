@@ -72,10 +72,9 @@ Requires PyTorch 2.1+ and Triton (CUDA 11.7+ environment).
 
 Bash
 ```
-git clone [https://github.com/lyj20071013/triton-flash-attention.git](https://github.com/lyj20071013/triton-flash-attention.git)
+git clone https://github.com/lyj20071013/triton-flash-attention.git
 cd triton-flash-attention
 pip install torch triton matplotlib
-Quick Start
 ```
 Python
 ```
